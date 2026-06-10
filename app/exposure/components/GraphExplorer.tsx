@@ -39,8 +39,9 @@ export default function GraphExplorer() {
     return m;
   }, [graph]);
 
-  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 0 });
+  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 0.2 });
   const [size, setSize] = useState({ w: 0, h: 0 });
+  const [initialized, setInitialized] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeClusters, setActiveClusters] = useState<Set<ClusterId>>(
     () => new Set(graph.clusters.map((c) => c.id))
@@ -87,11 +88,12 @@ export default function GraphExplorer() {
     (w: number, h: number) => {
       setSize({ w, h });
       // First measurement: fit the whole org into view.
-      if (transformRef.current.k === 0 && w > 0 && h > 0) {
+      if (!initialized && w > 0 && h > 0) {
         setTransform(fitTransform(w, h));
+        setInitialized(true);
       }
     },
-    [fitTransform]
+    [fitTransform, initialized]
   );
 
   const centerOn = useCallback(
