@@ -84,6 +84,42 @@ export interface AttackPath {
   name: string;
   description: string;
   nodeIds: string[]; // ordered hops
+  hopCaptions: string[]; // one narrative caption per hop, for playback
+}
+
+// A remediation action with quantified graph impact.
+export interface Fix {
+  id: string;
+  title: string;
+  description: string;
+  targetEntityId: string;
+  severedEdgeIds: string[];
+  severedPathIds: string[];
+  riskDelta: number; // org risk points removed when applied
+}
+
+// Individually minor issues that chain into a critical exposure.
+export interface ToxicCombo {
+  id: string;
+  name: string;
+  explanation: string;
+  anchorId: string; // node that carries the badge
+  nodeIds: string[]; // highlighted mini-path
+  ingredients: string[]; // plain-language list of the chained issues
+}
+
+export interface IncidentStep {
+  time: string;
+  title: string;
+  description: string;
+  revealNodeIds: string[];
+  revealEdgeIds: string[];
+}
+
+export interface Incident {
+  id: string;
+  name: string;
+  steps: IncidentStep[];
 }
 
 export interface GraphData {
@@ -91,6 +127,10 @@ export interface GraphData {
   entities: Entity[];
   edges: Edge[];
   attackPaths: AttackPath[];
+  fixes: Fix[];
+  toxicCombos: ToxicCombo[];
+  incident: Incident;
+  riskTrend: number[]; // last 90 days of org risk, ending at the live score
 }
 
 export interface NodePosition {

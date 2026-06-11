@@ -12,6 +12,19 @@ export interface Transform {
   k: number;
 }
 
+export interface BlastInfo {
+  sourceId: string;
+  hops: Map<string, number>; // hop depth per reachable node
+  step: number; // hops revealed so far (flood-fill animation)
+}
+
+export interface ReplayInfo {
+  revealedNodes: Set<string>;
+  revealedEdges: Set<string>;
+  allNodes: Set<string>;
+  allEdges: Set<string>;
+}
+
 interface Props {
   graph: GraphData;
   positions: Map<string, NodePosition>;
@@ -25,6 +38,13 @@ interface Props {
   neighborMap: Map<string, Set<string>>;
   attackMode: boolean;
   focusedPath: AttackPath | null;
+  chokeMode: boolean;
+  chokeCounts: Map<string, number>;
+  blastInfo: BlastInfo | null;
+  focusedComboId: string | null;
+  onSelectCombo: (id: string | null) => void;
+  playbackStep: number | null; // hop index revealed during playback
+  replayInfo: ReplayInfo | null;
 }
 
 const MIN_ZOOM = 0.12;
@@ -41,6 +61,9 @@ const EDGE_STYLE = {
   attack: { stroke: "#ef4444", width: 2.2, dash: "9 6" },
 };
 
+// Blast flood-fill ring colors by hop depth (source is cyan, then heat).
+const BLAST_COLORS = ["#22d3ee", "#fb923c", "#f87171", "#ef4444", "#dc2626"];
+
 export default function GraphCanvas({
   graph,
   positions,
@@ -54,11 +77,19 @@ export default function GraphCanvas({
   neighborMap,
   attackMode,
   focusedPath,
+  chokeMode,
+  chokeCounts,
+  blastInfo,
+  focusedComboId,
+  onSelectCombo,
+  playbackStep,
+  replayInfo,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [hoveredCombo, setHoveredCombo] = useState<string | null>(null);
 
   const transformRef = useRef(transform);
   transformRef.current = transform;
@@ -115,7 +146,10 @@ export default function GraphCanvas({
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
-    if (drag && !drag.moved) onSelect(null);
+    if (drag && !drag.moved) {
+      onSelect(null);
+      onSelectCombo(null);
+    }
   };
 
   const k = transform.k;
@@ -126,10 +160,7 @@ export default function GraphCanvas({
 
   // ---- Cluster aggregates for the bird's-eye layer ----
   const clusterStats = useMemo(() => {
-    const stats = new Map<
-      ClusterId,
-      { count: number; maxRisk: number; compromised: number }
-    >();
+    const stats = new Map<ClusterId, { count: number; maxRisk: number; compromised: number }>();
     for (const c of graph.clusters) stats.set(c.id, { count: 0, maxRisk: 0, compromised: 0 });
     for (const e of graph.entities) {
       const s = stats.get(e.cluster)!;
@@ -175,11 +206,56 @@ export default function GraphCanvas({
     return { nodeIds, edgeKeys };
   }, [attackMode, focusedPath, graph.attackPaths]);
 
+  // During playback only the hops revealed so far light up.
+  const playbackInfo = useMemo(() => {
+    if (playbackStep === null || !focusedPath) return null;
+    const revealed = new Set(focusedPath.nodeIds.slice(0, playbackStep + 1));
+    const edgeKeys = new Set<string>();
+    for (let i = 0; i < playbackStep; i++) {
+      edgeKeys.add(`${focusedPath.nodeIds[i]}|${focusedPath.nodeIds[i + 1]}`);
+      edgeKeys.add(`${focusedPath.nodeIds[i + 1]}|${focusedPath.nodeIds[i]}`);
+    }
+    return { revealed, edgeKeys, currentId: focusedPath.nodeIds[playbackStep] };
+  }, [playbackStep, focusedPath]);
+
+  // ---- Toxic combo helpers ----
+  const focusedCombo = focusedComboId
+    ? graph.toxicCombos.find((c) => c.id === focusedComboId) ?? null
+    : null;
+  const comboInfo = useMemo(() => {
+    if (!focusedCombo) return null;
+    const nodes = new Set(focusedCombo.nodeIds);
+    const edgeKeys = new Set<string>();
+    // Any edge between two combo members participates in the chain.
+    for (const e of graph.edges) {
+      if (nodes.has(e.source) && nodes.has(e.target)) {
+        edgeKeys.add(`${e.source}|${e.target}`);
+        edgeKeys.add(`${e.target}|${e.source}`);
+      }
+    }
+    return { nodes, edgeKeys };
+  }, [focusedCombo, graph.edges]);
+
   const neighborsOfSelected = selectedId ? neighborMap.get(selectedId) : undefined;
 
+  // Opacity pipeline — the active lens wins; everything else dims.
   function nodeOpacity(id: string): number {
     if (!visibleIds.has(id)) return 0.05;
-    if (attackMode) return pathInfo.nodeIds.has(id) ? 1 : 0.12;
+    if (replayInfo) {
+      if (replayInfo.revealedNodes.has(id)) return 1;
+      if (replayInfo.allNodes.has(id)) return 0.06;
+      return 0.14;
+    }
+    if (blastInfo) {
+      const hop = blastInfo.hops.get(id);
+      return hop !== undefined && hop <= blastInfo.step ? 1 : 0.08;
+    }
+    if (comboInfo) return comboInfo.nodes.has(id) ? 1 : 0.12;
+    if (attackMode) {
+      if (playbackInfo) return playbackInfo.revealed.has(id) ? 1 : pathInfo.nodeIds.has(id) ? 0.25 : 0.08;
+      return pathInfo.nodeIds.has(id) ? 1 : 0.12;
+    }
+    if (chokeMode) return (chokeCounts.get(id) ?? 0) > 0 ? 1 : 0.15;
     if (selectedId) {
       if (id === selectedId || neighborsOfSelected?.has(id)) return 1;
       return 0.18;
@@ -189,7 +265,25 @@ export default function GraphCanvas({
 
   function edgeOpacity(e: Edge): number {
     if (!visibleIds.has(e.source) || !visibleIds.has(e.target)) return 0.03;
-    if (attackMode) return pathInfo.edgeKeys.has(`${e.source}|${e.target}`) ? 1 : 0.06;
+    if (replayInfo) {
+      if (replayInfo.revealedEdges.has(e.id)) return 1;
+      if (replayInfo.allEdges.has(e.id)) return 0.02;
+      return 0.06;
+    }
+    if (blastInfo) {
+      const a = blastInfo.hops.get(e.source);
+      const b = blastInfo.hops.get(e.target);
+      return a !== undefined && b !== undefined && a <= blastInfo.step && b <= blastInfo.step
+        ? 0.85
+        : 0.04;
+    }
+    if (comboInfo) return comboInfo.edgeKeys.has(`${e.source}|${e.target}`) ? 1 : 0.05;
+    if (attackMode) {
+      if (playbackInfo) return playbackInfo.edgeKeys.has(`${e.source}|${e.target}`) ? 1 : 0.04;
+      return pathInfo.edgeKeys.has(`${e.source}|${e.target}`) ? 1 : 0.06;
+    }
+    if (chokeMode)
+      return (chokeCounts.get(e.source) ?? 0) > 0 && (chokeCounts.get(e.target) ?? 0) > 0 ? 0.7 : 0.05;
     if (selectedId) return e.source === selectedId || e.target === selectedId ? 1 : 0.08;
     return 0.75;
   }
@@ -198,15 +292,27 @@ export default function GraphCanvas({
   const stepBadges = useMemo(() => {
     if (!attackMode) return [];
     const paths = focusedPath ? [focusedPath] : graph.attackPaths;
-    const badges: Array<{ x: number; y: number; n: number; key: string }> = [];
+    const badges: Array<{ x: number; y: number; n: number; key: string; revealed: boolean }> = [];
     for (const p of paths) {
       p.nodeIds.forEach((id, i) => {
         const pos = positions.get(id);
-        if (pos) badges.push({ x: pos.x, y: pos.y, n: i + 1, key: `${p.id}-${i}` });
+        if (pos)
+          badges.push({
+            x: pos.x,
+            y: pos.y,
+            n: i + 1,
+            key: `${p.id}-${i}`,
+            revealed: playbackInfo ? i <= (playbackStep ?? -1) : true,
+          });
       });
     }
     return badges;
-  }, [attackMode, focusedPath, graph.attackPaths, positions]);
+  }, [attackMode, focusedPath, graph.attackPaths, positions, playbackInfo, playbackStep]);
+
+  const maxChoke = useMemo(
+    () => Math.max(1, ...chokeCounts.values()),
+    [chokeCounts]
+  );
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden">
@@ -239,6 +345,8 @@ export default function GraphCanvas({
         <style>{`
           @keyframes dashFlow { to { stroke-dashoffset: -30; } }
           .attack-edge { animation: dashFlow 0.9s linear infinite; }
+          @keyframes ringPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.15; } }
+          .pulse-ring { animation: ringPulse 1.1s ease-in-out infinite; }
         `}</style>
 
         <g transform={`translate(${transform.x} ${transform.y}) scale(${k})`}>
@@ -319,7 +427,9 @@ export default function GraphCanvas({
                 const a = positions.get(e.source);
                 const b = positions.get(e.target);
                 if (!a || !b) return null;
-                const onPath = attackMode && pathInfo.edgeKeys.has(`${e.source}|${e.target}`);
+                const onPath =
+                  (attackMode && pathInfo.edgeKeys.has(`${e.source}|${e.target}`)) ||
+                  (replayInfo?.revealedEdges.has(e.id) ?? false);
                 const style = onPath ? EDGE_STYLE.attack : EDGE_STYLE[e.criticality];
                 const hovered = hoveredEdge === e.id;
                 return (
@@ -367,6 +477,11 @@ export default function GraphCanvas({
                 const isSelected = ent.id === selectedId;
                 const isHovered = ent.id === hoveredNode;
                 const risky = ent.status !== "healthy";
+                const chokeN = chokeCounts.get(ent.id) ?? 0;
+                const chokeR = chokeMode && chokeN > 0 ? NODE_R + 4 + (chokeN / maxChoke) * 14 : NODE_R;
+                const blastHop = blastInfo?.hops.get(ent.id);
+                const blastReached = blastHop !== undefined && blastHop <= (blastInfo?.step ?? -1);
+                const isPlaybackCurrent = playbackInfo?.currentId === ent.id;
                 return (
                   <g
                     key={ent.id}
@@ -383,15 +498,34 @@ export default function GraphCanvas({
                     onMouseLeave={() => setHoveredNode(null)}
                   >
                     {ent.criticalAsset && (
-                      <circle r={NODE_R + 6} fill="none" stroke="#c084fc" strokeWidth={2} strokeDasharray="4 4" />
+                      <circle r={chokeR + 6} fill="none" stroke="#c084fc" strokeWidth={2} strokeDasharray="4 4" />
                     )}
                     {isSelected && (
-                      <circle r={NODE_R + 10} fill="none" stroke="#22d3ee" strokeWidth={2.5} />
+                      <circle r={chokeR + 10} fill="none" stroke="#22d3ee" strokeWidth={2.5} />
+                    )}
+                    {/* Choke-point halo */}
+                    {chokeMode && chokeN > 0 && (
+                      <circle r={chokeR + 3} fill="#e879f9" fillOpacity={0.12} stroke="#e879f9" strokeWidth={2} strokeOpacity={0.8} filter="url(#glow)" />
+                    )}
+                    {/* Blast flood-fill ring */}
+                    {blastReached && (
+                      <circle
+                        r={NODE_R + 7}
+                        fill={BLAST_COLORS[Math.min(blastHop!, BLAST_COLORS.length - 1)]}
+                        fillOpacity={0.16}
+                        stroke={BLAST_COLORS[Math.min(blastHop!, BLAST_COLORS.length - 1)]}
+                        strokeWidth={2.2}
+                        filter="url(#glow)"
+                      />
+                    )}
+                    {/* Playback current-hop pulse */}
+                    {isPlaybackCurrent && (
+                      <circle r={NODE_R + 12} fill="none" stroke="#ef4444" strokeWidth={3} className="pulse-ring" />
                     )}
                     <circle
-                      r={isHovered ? NODE_R + 2 : NODE_R}
+                      r={isHovered ? chokeR + 2 : chokeR}
                       fill="#0f172a"
-                      stroke={color}
+                      stroke={chokeMode && chokeN > 0 ? "#e879f9" : color}
                       strokeWidth={2.2}
                       filter={risky ? "url(#glow)" : undefined}
                     />
@@ -400,10 +534,16 @@ export default function GraphCanvas({
                       fill={color}
                       transform={`translate(${-NODE_R * 0.62} ${-NODE_R * 0.62}) scale(${(NODE_R * 1.24) / 24})`}
                     />
+                    {/* Choke-point path count */}
+                    {chokeMode && chokeN > 0 && (
+                      <text textAnchor="middle" y={-chokeR - 8} fontSize={12} fontWeight={700} fill="#e879f9" pointerEvents="none">
+                        {chokeN} path{chokeN === 1 ? "" : "s"}
+                      </text>
+                    )}
                     {(labelOpacity > 0.02 || isHovered || isSelected) && (
                       <text
                         textAnchor="middle"
-                        y={NODE_R + 16}
+                        y={chokeR + 16}
                         fontSize={10.5}
                         fill="#cbd5e1"
                         opacity={isHovered || isSelected ? 1 : labelOpacity}
@@ -416,15 +556,54 @@ export default function GraphCanvas({
                 );
               })}
 
+              {/* Toxic-combo badges (hidden while another lens is active) */}
+              {!attackMode && !blastInfo && !replayInfo &&
+                graph.toxicCombos.map((tc) => {
+                  const p = positions.get(tc.anchorId);
+                  if (!p || !visibleIds.has(tc.anchorId)) return null;
+                  const hovered = hoveredCombo === tc.id;
+                  const focused = focusedComboId === tc.id;
+                  return (
+                    <g
+                      key={tc.id}
+                      transform={`translate(${p.x + NODE_R + 6} ${p.y - NODE_R - 6})`}
+                      className="cursor-pointer"
+                      opacity={focusedComboId && !focused ? 0.25 : 1}
+                      onPointerDown={(ev) => ev.stopPropagation()}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onSelectCombo(focused ? null : tc.id);
+                      }}
+                      onMouseEnter={() => setHoveredCombo(tc.id)}
+                      onMouseLeave={() => setHoveredCombo(null)}
+                    >
+                      <circle r={10} fill="#451a03" stroke="#f59e0b" strokeWidth={2} filter={focused ? "url(#glow)" : undefined} />
+                      <text textAnchor="middle" y={4.5} fontSize={12} fontWeight={700} fill="#fbbf24" pointerEvents="none">
+                        ⚠
+                      </text>
+                      {hovered && !focused && (
+                        <g transform="translate(14 -6)" pointerEvents="none">
+                          <rect x={0} y={-14} width={Math.max(150, tc.name.length * 7 + 20)} height={26} rx={6} fill="#0f172a" stroke="#f59e0b" strokeOpacity={0.5} strokeWidth={0.8} />
+                          <text x={10} y={3} fontSize={11} fill="#fcd34d">
+                            Toxic combo: {tc.name}
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+
               {/* Attack-path step badges */}
-              {stepBadges.map((b) => (
-                <g key={b.key} transform={`translate(${b.x + NODE_R + 4} ${b.y - NODE_R - 4})`} pointerEvents="none">
-                  <circle r={9} fill="#ef4444" />
-                  <text textAnchor="middle" y={3.5} fontSize={11} fontWeight={700} fill="#fff">
-                    {b.n}
-                  </text>
-                </g>
-              ))}
+              {stepBadges.map((b) =>
+                b.revealed ? (
+                  <g key={b.key} transform={`translate(${b.x + NODE_R + 4} ${b.y - NODE_R - 4})`} pointerEvents="none">
+                    <circle r={9} fill="#ef4444" />
+                    <text textAnchor="middle" y={3.5} fontSize={11} fontWeight={700} fill="#fff">
+                      {b.n}
+                    </text>
+                  </g>
+                ) : null
+              )}
             </g>
           )}
         </g>

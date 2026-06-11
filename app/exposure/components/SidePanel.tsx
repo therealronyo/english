@@ -8,7 +8,7 @@ import {
   STATUS_COLORS,
   TYPE_LABELS,
 } from "../lib/style";
-import type { Entity, GraphData } from "../lib/types";
+import type { AttackPath, Entity, GraphData } from "../lib/types";
 
 interface Props {
   entity: Entity | null;
@@ -16,6 +16,12 @@ interface Props {
   entityById: Map<string, Entity>;
   onClose: () => void;
   onNavigate: (id: string) => void;
+  chokeInfo: { count: number; total: number; paths: AttackPath[] } | null;
+  onFocusPath: (path: AttackPath) => void;
+  blastActive: boolean;
+  blastSummary: { reachedCount: number; critical: Entity[] } | null;
+  onStartBlast: (id: string) => void;
+  onExitBlast: () => void;
 }
 
 const STATUS_LABELS = {
@@ -24,7 +30,19 @@ const STATUS_LABELS = {
   compromised: "Compromised",
 } as const;
 
-export default function SidePanel({ entity, graph, entityById, onClose, onNavigate }: Props) {
+export default function SidePanel({
+  entity,
+  graph,
+  entityById,
+  onClose,
+  onNavigate,
+  chokeInfo,
+  onFocusPath,
+  blastActive,
+  blastSummary,
+  onStartBlast,
+  onExitBlast,
+}: Props) {
   const open = entity !== null;
 
   const connections = entity
@@ -116,6 +134,106 @@ export default function SidePanel({ entity, graph, entityById, onClose, onNaviga
             </section>
 
             <p className="text-slate-400">{entity.description}</p>
+
+            {/* Blast radius */}
+            <section>
+              {!blastActive ? (
+                <button
+                  onClick={() => onStartBlast(entity.id)}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-[12px] font-semibold text-orange-300 transition hover:bg-orange-500/20"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="2.5" />
+                    <circle cx="12" cy="12" r="6.5" strokeDasharray="3 3" />
+                    <circle cx="12" cy="12" r="10" strokeDasharray="2 4" />
+                  </svg>
+                  Show blast radius
+                </button>
+              ) : (
+                <div className="rounded-lg border border-orange-500/40 bg-orange-950/20 p-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[10px] font-semibold uppercase tracking-wider text-orange-400">
+                      Blast radius
+                    </h3>
+                    <button
+                      onClick={onExitBlast}
+                      className="text-[10px] text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+                    >
+                      Exit
+                    </button>
+                  </div>
+                  {blastSummary && (
+                    <>
+                      <p className="mt-1.5 text-[12px] text-slate-300">
+                        From here an attacker can reach{" "}
+                        <span className="font-bold text-orange-300">
+                          {blastSummary.reachedCount} entities
+                        </span>
+                        {blastSummary.critical.length > 0 ? (
+                          <>
+                            , including{" "}
+                            <span className="font-bold text-red-400">
+                              {blastSummary.critical.length} critical asset
+                              {blastSummary.critical.length === 1 ? "" : "s"}
+                            </span>
+                            :
+                          </>
+                        ) : (
+                          <> — no critical assets in range.</>
+                        )}
+                      </p>
+                      {blastSummary.critical.length > 0 && (
+                        <ul className="mt-1.5 space-y-1">
+                          {blastSummary.critical.map((c) => (
+                            <li key={c.id}>
+                              <button
+                                onClick={() => onNavigate(c.id)}
+                                className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[11.5px] text-red-300 hover:bg-slate-900"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="currentColor">
+                                  <path d={ICON_PATHS[c.type]} />
+                                </svg>
+                                {c.name}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* Choke point */}
+            {chokeInfo && (
+              <section className="rounded-lg border border-fuchsia-500/40 bg-fuchsia-950/20 p-3">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-fuchsia-400">
+                  Choke point
+                </h3>
+                <p className="mt-1.5 text-[12px] text-slate-300">
+                  On{" "}
+                  <span className="font-bold text-fuchsia-300">
+                    {chokeInfo.count} of {chokeInfo.total}
+                  </span>{" "}
+                  attack paths. Fixing this entity severs{" "}
+                  <span className="font-bold text-fuchsia-300">{chokeInfo.count}</span> path
+                  {chokeInfo.count === 1 ? "" : "s"}.
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {chokeInfo.paths.map((p) => (
+                    <li key={p.id}>
+                      <button
+                        onClick={() => onFocusPath(p)}
+                        className="w-full rounded-md px-1.5 py-1 text-left text-[11.5px] text-slate-300 hover:bg-slate-900"
+                      >
+                        → {p.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             {/* Alerts */}
             {entity.alerts.length > 0 && (

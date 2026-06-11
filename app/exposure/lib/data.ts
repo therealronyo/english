@@ -26,7 +26,9 @@ function mulberry32(seed: number) {
   };
 }
 
-const rand = mulberry32(1337);
+// Shared generator state, re-seeded at the start of every buildGraphData()
+// call so server and client renders produce identical data.
+let rand = mulberry32(1337);
 
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(rand() * arr.length)];
@@ -151,12 +153,16 @@ function makeEntity(spec: EntitySpec): Entity {
 }
 
 export function buildGraphData(): GraphData {
+  rand = mulberry32(1337);
+  alertCounter = 100;
   const entities: Entity[] = [];
   const edges: Edge[] = [];
   let edgeCounter = 0;
 
-  function addEdge(source: string, target: string, kind: EdgeKind, criticality: EdgeCriticality = "normal") {
-    edges.push({ id: `e${edgeCounter++}`, source, target, kind, criticality });
+  function addEdge(source: string, target: string, kind: EdgeKind, criticality: EdgeCriticality = "normal"): string {
+    const id = `e${edgeCounter++}`;
+    edges.push({ id, source, target, kind, criticality });
+    return id;
   }
 
   // ---- Story entities (hand-authored, used by attack paths) ----
@@ -359,26 +365,31 @@ export function buildGraphData(): GraphData {
   }
 
   // ---- Story edges (attack-path backbone) ----
-  addEdge("u-okafor", "lt-contractor", "communicates_with", "risky");
-  addEdge("lt-contractor", "vpn-1", "authenticates_to", "attack");
-  addEdge("lt-contractor", "svc-backup", "affected_by", "attack");
-  addEdge("svc-backup", "srv-jump", "authenticates_to", "attack");
-  addEdge("srv-jump", "db-customers", "has_access_to", "attack");
-  addEdge("adm-dlevy", "srv-jump", "admin_of", "risky");
-  addEdge("adm-dlevy", "db-finance", "has_access_to", "risky");
-  addEdge("vpn-1", "srv-jump", "communicates_with", "risky");
-  addEdge("u-okafor", "db-finance", "has_access_to", "risky");
-  addEdge("u-okafor", "app-crm", "authenticates_to", "normal");
-  addEdge("cw-payments", "db-customers", "has_access_to", "risky");
-  addEdge("cw-payments", "db-finance", "communicates_with", "normal");
-  addEdge("svc-backup", "fs-legal", "has_access_to", "risky");
-  addEdge("svc-backup", "da-5", "has_access_to", "normal"); // FS-BACKUPS
+  // Ids captured so fixes and the incident replay can reference them.
+  const E = {
+    okaforToLaptop: addEdge("u-okafor", "lt-contractor", "communicates_with", "risky"),
+    laptopToVpn: addEdge("lt-contractor", "vpn-1", "authenticates_to", "attack"),
+    laptopToSvc: addEdge("lt-contractor", "svc-backup", "affected_by", "attack"),
+    svcToJump: addEdge("svc-backup", "srv-jump", "authenticates_to", "attack"),
+    jumpToCustomers: addEdge("srv-jump", "db-customers", "has_access_to", "attack"),
+    admToJump: addEdge("adm-dlevy", "srv-jump", "admin_of", "risky"),
+    admToFinance: addEdge("adm-dlevy", "db-finance", "has_access_to", "risky"),
+    vpnToJump: addEdge("vpn-1", "srv-jump", "communicates_with", "risky"),
+    okaforToFinance: addEdge("u-okafor", "db-finance", "has_access_to", "risky"),
+    okaforToCrm: addEdge("u-okafor", "app-crm", "authenticates_to", "normal"),
+    paymentsToCustomers: addEdge("cw-payments", "db-customers", "has_access_to", "risky"),
+    paymentsToFinance: addEdge("cw-payments", "db-finance", "communicates_with", "normal"),
+    svcToLegal: addEdge("svc-backup", "fs-legal", "has_access_to", "risky"),
+    svcToBackups: addEdge("svc-backup", "da-5", "has_access_to", "normal"), // FS-BACKUPS
+  };
 
   // Alerts attached to affected entities
-  addEdge("al-phish", "lt-contractor", "affected_by", "attack");
-  addEdge("al-cred", "svc-backup", "affected_by", "attack");
-  addEdge("al-lateral", "srv-jump", "affected_by", "attack");
-  addEdge("al-vpn", "vpn-1", "affected_by", "risky");
+  const EA = {
+    phishToLaptop: addEdge("al-phish", "lt-contractor", "affected_by", "attack"),
+    credToSvc: addEdge("al-cred", "svc-backup", "affected_by", "attack"),
+    lateralToJump: addEdge("al-lateral", "srv-jump", "affected_by", "attack"),
+    vpnAlert: addEdge("al-vpn", "vpn-1", "affected_by", "risky"),
+  };
   addEdge("al-4", "app-2", "affected_by", "risky"); // brute force -> Okta-ish
   addEdge("al-3", "cw-2", "affected_by", "risky");
   addEdge("al-5", "da-1", "affected_by", "risky");
@@ -432,6 +443,12 @@ export function buildGraphData(): GraphData {
       description:
         "Phishing payload on an unmanaged contractor laptop harvested service-account credentials, enabling lateral movement through the jump server to the production customer database (4.2M PII records).",
       nodeIds: ["lt-contractor", "svc-backup", "srv-jump", "db-customers"],
+      hopCaptions: [
+        "Initial access: a phishing attachment executes a malicious macro on the unmanaged contractor laptop.",
+        "Credential theft: LSASS memory is dumped, exposing the svc-backup-prod service-account credentials.",
+        "Lateral movement: the stolen credential opens an RDP session to the jump server bridging into the datacenter VLAN.",
+        "Objective: the jump server has standing access to CUSTOMER-DB-PROD — 4.2M customer records reachable.",
+      ],
     },
     {
       id: "ap-2",
@@ -439,6 +456,12 @@ export function buildGraphData(): GraphData {
       description:
         "Unpatched VPN gateway (CVE-2024-21762) allows pre-auth code execution; an attacker can pivot to the jump server where a domain-admin session token is exposed, granting access to the finance database.",
       nodeIds: ["vpn-1", "srv-jump", "adm-dlevy", "db-finance"],
+      hopCaptions: [
+        "Entry point: CVE-2024-21762 allows pre-auth remote code execution on the internet-facing VPN gateway.",
+        "Pivot: the gateway has a network path to the jump server inside the perimeter.",
+        "Privilege escalation: a domain-admin session token (dlevy-admin) is exposed on the jump server.",
+        "Objective: the admin account holds standing access to FINANCE-DB-01 — payment instructions at risk.",
+      ],
     },
     {
       id: "ap-3",
@@ -446,10 +469,165 @@ export function buildGraphData(): GraphData {
       description:
         "The stolen svc-backup-prod credential has standing read access to the legal department file share containing M&A material — direct exfiltration risk with no further exploitation required.",
       nodeIds: ["lt-contractor", "svc-backup", "fs-legal"],
+      hopCaptions: [
+        "Foothold: the compromised contractor laptop already runs attacker code.",
+        "Stolen identity: the harvested svc-backup-prod credential is valid and unrotated.",
+        "Objective: that credential has standing read access to FS-LEGAL-SHARE — M&A material can be exfiltrated with no further exploit.",
+      ],
     },
   ];
 
-  return { clusters: CLUSTERS, entities, edges, attackPaths };
+  // ---- Remediation fixes (ranked live by paths severed) ----
+  const fixes = [
+    {
+      id: "fix-svc",
+      title: "Rotate svc-backup-prod credentials",
+      description:
+        "Rotate the harvested service-account credential and revoke its standing access. Removes the stolen identity from every path that uses it.",
+      targetEntityId: "svc-backup",
+      severedEdgeIds: [E.laptopToSvc, E.svcToJump, E.svcToLegal],
+      severedPathIds: ["ap-1", "ap-3"],
+      riskDelta: 18,
+    },
+    {
+      id: "fix-contractor",
+      title: "Isolate LT-CONTRACTOR-88",
+      description:
+        "Network-contain the compromised contractor laptop. Cuts the attacker's foothold at the source.",
+      targetEntityId: "lt-contractor",
+      severedEdgeIds: [E.okaforToLaptop, E.laptopToVpn, E.laptopToSvc],
+      severedPathIds: ["ap-1", "ap-3"],
+      riskDelta: 16,
+    },
+    {
+      id: "fix-jump",
+      title: "Enforce MFA + tiering on JUMP-SRV-02",
+      description:
+        "Require step-up MFA for jump-server sessions and remove its standing route to production databases. The jump server is the choke point of two paths.",
+      targetEntityId: "srv-jump",
+      severedEdgeIds: [E.svcToJump, E.jumpToCustomers, E.admToJump],
+      severedPathIds: ["ap-1", "ap-2"],
+      riskDelta: 15,
+    },
+    {
+      id: "fix-vpn",
+      title: "Patch CVE-2024-21762 on VPN-GW-TLV-01",
+      description:
+        "Apply the FortiOS patch closing the pre-auth RCE on the internet-facing gateway.",
+      targetEntityId: "vpn-1",
+      severedEdgeIds: [E.vpnToJump, E.laptopToVpn],
+      severedPathIds: ["ap-2"],
+      riskDelta: 12,
+    },
+    {
+      id: "fix-admin",
+      title: "Clear dlevy-admin session on jump server",
+      description:
+        "Invalidate the exposed domain-admin session token and move the account to a privileged-access workstation.",
+      targetEntityId: "adm-dlevy",
+      severedEdgeIds: [E.admToJump, E.admToFinance],
+      severedPathIds: ["ap-2"],
+      riskDelta: 9,
+    },
+  ];
+
+  // ---- Toxic combinations (minor issues that chain into critical exposure) ----
+  const toxicCombos = [
+    {
+      id: "tc-1",
+      name: "Public API → Customer PII",
+      explanation:
+        "Three medium findings chain: an internet-reachable workload, a weak JWT signing key, and standing access to the customer database. Each alone is backlog material; together they are a breach path.",
+      anchorId: "cw-payments",
+      nodeIds: ["cw-payments", "db-customers"],
+      ingredients: [
+        "payments-api is reachable from the internet (medium)",
+        "CVE-2025-0099 — weak JWT signing key (medium, CVSS 6.5)",
+        "Workload has standing access to CUSTOMER-DB-PROD (risky edge)",
+      ],
+    },
+    {
+      id: "tc-2",
+      name: "Phish target → Finance DB",
+      explanation:
+        "A user who clicked a confirmed phishing link holds direct, un-stepped access to the finance database. One successful credential phish becomes financial-data exposure.",
+      anchorId: "u-okafor",
+      nodeIds: ["u-okafor", "db-finance"],
+      ingredients: [
+        "Confirmed phishing click in the last 7 days (medium)",
+        "Direct has-access-to edge to FINANCE-DB-01 (risky)",
+        "No step-up MFA required for database access (low)",
+      ],
+    },
+    {
+      id: "tc-3",
+      name: "Admin session on shared host",
+      explanation:
+        "A domain-admin session token sits on a multi-user jump server that lower-trust identities can reach. Anyone who lands on that host inherits a path to domain admin and the finance database.",
+      anchorId: "adm-dlevy",
+      nodeIds: ["adm-dlevy", "srv-jump", "db-finance"],
+      ingredients: [
+        "Privileged session from a non-PAW host (medium)",
+        "Jump server reachable from the user segment (low)",
+        "Admin account has standing access to FINANCE-DB-01 (risky)",
+      ],
+    },
+  ];
+
+  // ---- Incident replay (the ap-1 breach as a timeline) ----
+  const incident = {
+    id: "inc-1",
+    name: "Contractor laptop breach — replay",
+    steps: [
+      {
+        time: "09:12",
+        title: "Phishing email opened",
+        description: "Adaeze Okafor forwards a vendor invoice to the contractor; the attachment carries a malicious macro.",
+        revealNodeIds: ["u-okafor", "lt-contractor"],
+        revealEdgeIds: [E.okaforToLaptop],
+      },
+      {
+        time: "09:14",
+        title: "Malicious macro executes",
+        description: "EDR raises an alert: the macro spawns PowerShell on LT-CONTRACTOR-88. Initial access established.",
+        revealNodeIds: ["al-phish"],
+        revealEdgeIds: [EA.phishToLaptop],
+      },
+      {
+        time: "09:51",
+        title: "Credentials harvested",
+        description: "LSASS memory is dumped (Mimikatz pattern). The svc-backup-prod service-account credential is now in attacker hands.",
+        revealNodeIds: ["svc-backup", "al-cred"],
+        revealEdgeIds: [E.laptopToSvc, EA.credToSvc],
+      },
+      {
+        time: "11:22",
+        title: "Lateral movement via RDP",
+        description: "The stolen credential opens an interactive RDP session to JUMP-SRV-02, crossing into the datacenter VLAN.",
+        revealNodeIds: ["srv-jump", "al-lateral"],
+        revealEdgeIds: [E.svcToJump, EA.lateralToJump],
+      },
+      {
+        time: "13:05",
+        title: "Customer DB reached",
+        description: "The jump server's standing access is used to query CUSTOMER-DB-PROD. 4.2M records exposed; containment begins.",
+        revealNodeIds: ["db-customers"],
+        revealEdgeIds: [E.jumpToCustomers],
+      },
+    ],
+  };
+
+  // ---- 90-day posture trend (seeded walk ending at a fixed live baseline) ----
+  const trendRand = mulberry32(4242);
+  const riskTrend: number[] = [];
+  let level = 84;
+  for (let i = 0; i < 89; i++) {
+    riskTrend.push(Math.round(level));
+    level += (trendRand() - 0.52) * 2.6;
+    level = Math.max(55, Math.min(95, level));
+  }
+
+  return { clusters: CLUSTERS, entities, edges, attackPaths, fixes, toxicCombos, incident, riskTrend };
 }
 
 export const EDGE_KIND_LABELS: Record<EdgeKind, string> = {
