@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ExposureGraph — Persona Playbook</title>
+<style>
+  :root {
+    --bg: #020617;
+    --panel: #0b1220;
+    --panel2: #0f172a;
+    --border: #1e293b;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --faint: #64748b;
+    --cyan: #22d3ee;
+    --emerald: #34d399;
+    --amber: #fbbf24;
+    --orange: #fb923c;
+    --red: #f87171;
+    --fuchsia: #e879f9;
+    --purple: #c084fc;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* grid backdrop, echoing the app */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      radial-gradient(circle at 50% 25%, rgba(34,211,238,0.06), transparent 60%),
+      linear-gradient(rgba(51,65,85,0.14) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(51,65,85,0.14) 1px, transparent 1px);
+    background-size: auto, 46px 46px, 46px 46px;
+  }
+
+  .deck { position: relative; z-index: 1; height: 100%; }
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    padding: 6vh 8vw 12vh;
+    animation: fade .5s ease;
+  }
+  .slide.active { display: flex; }
+  @keyframes fade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+  .kicker {
+    font-size: 13px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--cyan); margin-bottom: 18px;
+  }
+  h1 { font-size: clamp(34px, 5.2vw, 68px); line-height: 1.04; font-weight: 800; letter-spacing: -0.02em; }
+  h2 { font-size: clamp(26px, 3.6vw, 46px); line-height: 1.1; font-weight: 800; letter-spacing: -0.015em; margin-bottom: 8px; }
+  .lead { font-size: clamp(16px, 1.9vw, 23px); color: var(--muted); max-width: 60ch; line-height: 1.5; margin-top: 22px; }
+  .sub { font-size: 15px; color: var(--faint); max-width: 70ch; line-height: 1.5; }
+
+  .logo { display: flex; align-items: center; gap: 14px; margin-bottom: 40px; }
+  .logo .mark {
+    width: 46px; height: 46px; border-radius: 12px;
+    background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.4);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo .mark svg { width: 26px; height: 26px; fill: var(--cyan); }
+  .logo b { font-size: 17px; letter-spacing: .04em; }
+  .logo span { display: block; font-size: 12px; color: var(--faint); font-weight: 400; }
+
+  .grid { display: grid; gap: 18px; margin-top: 34px; }
+  .grid.c2 { grid-template-columns: repeat(2, 1fr); }
+  .grid.c3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.c4 { grid-template-columns: repeat(2, 1fr); }
+
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel2));
+    border: 1px solid var(--border); border-radius: 16px; padding: 22px 22px;
+  }
+  .card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+  .card p { font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .card .tag { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+  .persona-icon {
+    width: 38px; height: 38px; border-radius: 10px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .persona-icon svg { width: 22px; height: 22px; }
+
+  ul.steps { list-style: none; margin-top: 16px; display: grid; gap: 12px; }
+  ul.steps li { display: flex; gap: 14px; align-items: flex-start; font-size: 15px; color: var(--muted); line-height: 1.45; }
+  ul.steps .n {
+    flex: none; width: 26px; height: 26px; border-radius: 8px;
+    background: var(--panel2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: var(--ink);
+  }
+  ul.steps b { color: var(--ink); font-weight: 600; }
+
+  .feat { display: flex; gap: 14px; align-items: flex-start; }
+  .feat .ic {
+    flex: none; width: 34px; height: 34px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feat .ic svg { width: 19px; height: 19px; }
+  .feat h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+  .feat p { font-size: 13px; color: var(--muted); line-height: 1.45; }
+
+  .quote { font-size: clamp(20px, 2.6vw, 32px); line-height: 1.35; font-weight: 600; max-width: 26ch; }
+  .quote .by { display: block; font-size: 15px; color: var(--faint); font-weight: 400; margin-top: 18px; }
+
+  .flow { display: flex; align-items: center; gap: 12px; margin-top: 34px; flex-wrap: wrap; }
+  .flow .node {
+    border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px;
+    background: var(--panel2); font-size: 14px; font-weight: 600; min-width: 120px; text-align: center;
+  }
+  .flow .node small { display: block; font-size: 11px; color: var(--faint); font-weight: 400; margin-top: 3px; }
+  .flow .arrow { color: var(--faint); font-size: 22px; }
+
+  .metric { font-size: 44px; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+  .metric small { font-size: 15px; color: var(--faint); font-weight: 500; }
+
+  /* footer / nav */
+  .chrome {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 26px; font-size: 12px; color: var(--faint);
+    border-top: 1px solid var(--border); background: rgba(2,6,23,.7); backdrop-filter: blur(8px);
+  }
+  .chrome .nav { display: flex; align-items: center; gap: 10px; }
+  .chrome button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--ink);
+    border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .chrome button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--cyan); z-index: 6; transition: width .35s ease; }
+  .count { font-variant-numeric: tabular-nums; }
+  .hint { color: var(--faint); }
+
+  /* mini-graph illustration on the title slide */
+  .stage { position: absolute; right: 7vw; top: 50%; transform: translateY(-50%); width: 38vw; max-width: 560px; opacity: .92; }
+  @media (max-width: 1100px) { .stage { display: none; } h1 { max-width: 18ch; } }
+
+  /* product-demo screenshots */
+  .shot {
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    background: var(--panel2); box-shadow: 0 18px 40px rgba(0,0,0,.45);
+  }
+  .shot .bar {
+    display: flex; align-items: center; gap: 7px; padding: 9px 12px;
+    background: #0a1120; border-bottom: 1px solid var(--border);
+  }
+  .shot .bar i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+  .shot .bar .t { margin-left: 10px; font-size: 11px; color: var(--faint); font-family: ui-monospace, monospace; }
+  .shot img { display: block; width: 100%; height: auto; }
+  .gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 18px; margin-top: 18px; }
+  .gallery figure { margin: 0; }
+  .gallery .shot img { height: 21vh; object-fit: cover; object-position: top center; }
+  .gallery figcaption { font-size: 12.5px; color: var(--muted); margin-top: 7px; line-height: 1.4; }
+  .gallery figcaption b { color: var(--ink); font-weight: 600; }
+  .demo-hero { display: grid; grid-template-columns: 1.5fr 1fr; gap: 34px; align-items: center; margin-top: 22px; }
+  .map-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
+  .map-card { background: linear-gradient(180deg, var(--panel), var(--panel2)); border: 1px solid var(--border); border-radius: 14px; padding: 16px 16px; }
+  .map-card .hd { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; }
+  .map-card .hd .sw { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+  .map-card .types { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 8px; }
+  .role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; }
+  .role { background: linear-gradient(180deg, var(--panel), var(--panel2)); border: 1px solid var(--border); border-radius: 16px; padding: 20px; }
+  .role .top { display: flex; align-items: center; gap: 12px; }
+  .role .top h3 { font-size: 18px; font-weight: 700; }
+  .role .top small { display: block; font-size: 11.5px; color: var(--faint); font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
+  .role dl { margin-top: 16px; display: grid; gap: 11px; }
+  .role dt { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .role dd { font-size: 13.5px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+  .role dd b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 — Title -->
+  <section class="slide active">
+    <div class="logo">
+      <span class="mark"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5Zm0 4.5a2 2 0 1 1-2 2 2 2 0 0 1 2-2Z"/></svg></span>
+      <b>ExposureGraph<span>Organization Exposure Management</span></b>
+    </div>
+    <div class="kicker">Persona Playbook</div>
+    <h1>See your attack surface<br/>as one living graph.</h1>
+    <p class="lead">From a bird's-eye view of the whole org down to a single risky credential — and, crucially, to the one fix that severs the most attack paths. Here's how each security persona puts it to work.</p>
+
+    <svg class="stage" viewBox="0 0 560 460">
+      <defs>
+        <filter id="g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+      </defs>
+      <!-- edges -->
+      <g stroke-linecap="round" fill="none">
+        <line x1="120" y1="90" x2="300" y2="180" stroke="#ef4444" stroke-width="3" stroke-dasharray="9 6"/>
+        <line x1="300" y1="180" x2="430" y2="300" stroke="#ef4444" stroke-width="3" stroke-dasharray="9 6"/>
+        <line x1="300" y1="180" x2="180" y2="320" stroke="#d97706" stroke-width="2" stroke-dasharray="7 5"/>
+        <line x1="430" y1="300" x2="180" y2="320" stroke="#334155" stroke-width="2"/>
+        <line x1="120" y1="90" x2="300" y2="180" stroke="#ef4444" stroke-width="3" stroke-dasharray="9 6"/>
+        <line x1="430" y1="300" x2="470" y2="150" stroke="#334155" stroke-width="2"/>
+        <line x1="180" y1="320" x2="90" y2="240" stroke="#334155" stroke-width="2"/>
+      </g>
+      <!-- choke node halo -->
+      <circle cx="300" cy="180" r="40" fill="#e879f9" fill-opacity="0.12" stroke="#e879f9" stroke-width="2" filter="url(#g)"/>
+      <!-- nodes -->
+      <g font-family="Inter" font-size="11" fill="#cbd5e1" text-anchor="middle">
+        <g><circle cx="120" cy="90" r="16" fill="#0f172a" stroke="#f87171" stroke-width="2.4"/><text y="118">contractor</text></g>
+        <g><circle cx="300" cy="180" r="20" fill="#0f172a" stroke="#e879f9" stroke-width="2.6"/><text y="216">jump server</text></g>
+        <g><circle cx="430" cy="300" r="16" fill="#0f172a" stroke="#34d399" stroke-width="2.4"/><circle cx="430" cy="300" r="22" fill="none" stroke="#c084fc" stroke-width="1.6" stroke-dasharray="4 4"/><text y="334">customer DB</text></g>
+        <g><circle cx="180" cy="320" r="14" fill="#0f172a" stroke="#fbbf24" stroke-width="2.2"/><text y="348">svc-account</text></g>
+        <g><circle cx="470" cy="150" r="12" fill="#0f172a" stroke="#34d399" stroke-width="2"/></g>
+        <g><circle cx="90" cy="240" r="12" fill="#0f172a" stroke="#34d399" stroke-width="2"/></g>
+      </g>
+    </svg>
+  </section>
+
+  <!-- 2 — Why a graph -->
+  <section class="slide">
+    <div class="kicker">The problem</div>
+    <h2>Lists tell you what's wrong.<br/>A graph tells you what to fix.</h2>
+    <p class="lead">Discovery was never the hard part — every scanner produces thousands of findings. The bottleneck is deciding what actually matters, because risk lives in the <b style="color:var(--ink)">relationships between things</b>, not in any single row of a table.</p>
+    <div class="grid c3">
+      <div class="card">
+        <div class="tag" style="color:var(--red)">Toxic combinations</div>
+        <h3>Individually minor, together critical</h3>
+        <p>An internet-facing workload + a weak key + standing DB access is a breach path — even though each issue alone is backlog material.</p>
+      </div>
+      <div class="card">
+        <div class="tag" style="color:var(--fuchsia)">Choke points</div>
+        <h3>One fix, many paths</h3>
+        <p>Some nodes sit on dozens of attack paths. Fix that single node and you sever all of them at once.</p>
+      </div>
+      <div class="card">
+        <div class="tag" style="color:var(--orange)">Blast radius</div>
+        <h3>Reachability is the real risk</h3>
+        <p>"What can an attacker touch from here?" is a graph traversal — impossible to read off a vulnerability list.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 — How to read the graph -->
+  <section class="slide">
+    <div class="kicker">Orientation</div>
+    <h2>How to read the graph</h2>
+    <p class="sub">Six clusters, scored by severity. Zoom in and clusters dissolve into individual entities; zoom out and they collapse back into a bird's-eye map. Everything is color-coded.</p>
+    <div class="grid c2" style="margin-top:26px; gap:26px;">
+      <div class="card">
+        <h3>Node status</h3>
+        <div style="display:grid; gap:12px; margin-top:14px;">
+          <span class="pill"><span class="dot" style="background:var(--emerald)"></span> Healthy — no known issues</span>
+          <span class="pill"><span class="dot" style="background:var(--amber)"></span> Vulnerable — exposed but not breached</span>
+          <span class="pill"><span class="dot" style="background:var(--red)"></span> Compromised — active attacker presence</span>
+          <span class="pill"><span class="dot" style="background:var(--purple); box-shadow:0 0 0 2px rgba(192,132,252,.4)"></span> Critical asset — the crown jewels</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Edge meaning</h3>
+        <div style="display:grid; gap:12px; margin-top:14px;">
+          <span class="pill"><svg width="30" height="6"><line x1="0" y1="3" x2="30" y2="3" stroke="#334155" stroke-width="2.5"/></svg> Normal relationship</span>
+          <span class="pill"><svg width="30" height="6"><line x1="0" y1="3" x2="30" y2="3" stroke="#d97706" stroke-width="2.5" stroke-dasharray="6 4"/></svg> Risky access</span>
+          <span class="pill"><svg width="30" height="6"><line x1="0" y1="3" x2="30" y2="3" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="6 4"/></svg> Active attack edge</span>
+          <span class="pill"><span style="color:var(--amber); font-weight:700">⚠</span> Toxic-combination badge</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 — What's on the map -->
+  <section class="slide">
+    <div class="kicker">The inventory</div>
+    <h2>What's on the map</h2>
+    <p class="sub">Every entity in the org lives in one of six color-coded clusters. Zoom out and each cluster is a single bubble scored by severity; zoom in and it dissolves into the individual assets below.</p>
+    <div class="map-grid">
+      <div class="map-card">
+        <div class="hd"><span class="sw" style="background:#38bdf8"></span> Identities</div>
+        <p class="types">Users, admins &amp; service accounts — the credentials attackers hunt for.</p>
+      </div>
+      <div class="map-card">
+        <div class="hd"><span class="sw" style="background:#34d399"></span> Endpoints</div>
+        <p class="types">Laptops &amp; mobile devices — the usual entry point for a foothold.</p>
+      </div>
+      <div class="map-card">
+        <div class="hd"><span class="sw" style="background:#a78bfa"></span> Servers &amp; Infra</div>
+        <p class="types">On-prem servers, jump hosts &amp; VPN gateways that bridge network zones.</p>
+      </div>
+      <div class="map-card">
+        <div class="hd"><span class="sw" style="background:#fbbf24"></span> Cloud &amp; SaaS</div>
+        <p class="types">Cloud workloads &amp; SaaS apps (Okta, Salesforce, Snowflake…).</p>
+      </div>
+      <div class="map-card">
+        <div class="hd"><span class="sw" style="background:#f472b6"></span> Data Assets</div>
+        <p class="types">Databases &amp; file shares — the crown jewels an attacker is after.</p>
+      </div>
+      <div class="map-card">
+        <div class="hd"><span class="sw" style="background:#f87171"></span> Alerts &amp; Findings</div>
+        <p class="types">Live detections &amp; vulnerabilities tied to the assets they affect.</p>
+      </div>
+    </div>
+    <p class="sub" style="margin-top:22px">Nodes carry a <b style="color:var(--ink)">status</b> (healthy / vulnerable / compromised) and a <b style="color:var(--ink)">risk score</b>; edges are the relationships — who can access, authenticate to, or administer what — and that's where the attack paths hide.</p>
+  </section>
+
+  <!-- 5 — Personas & roles -->
+  <section class="slide">
+    <div class="kicker">Three jobs, one graph</div>
+    <h2>Who's it for — and what they own</h2>
+    <p class="sub">The same underlying graph, viewed at three altitudes. Each persona has a different role, a different question, and a different exit action.</p>
+    <div class="role-grid">
+      <div class="role">
+        <div class="top">
+          <span class="persona-icon" style="background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.4)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </span>
+          <div><h3>The Analyst</h3><small>SOC · Detection &amp; Response</small></div>
+        </div>
+        <dl>
+          <div><dt>Role</dt><dd>Front line. Triages incoming alerts and decides what's real.</dd></div>
+          <div><dt>Asks</dt><dd><b>"Is this alert real, and how bad?"</b></dd></div>
+          <div><dt>Exit action</dt><dd>Escalate with evidence, or close as contained.</dd></div>
+        </dl>
+      </div>
+      <div class="role">
+        <div class="top">
+          <span class="persona-icon" style="background:rgba(232,121,249,.12); border:1px solid rgba(232,121,249,.4)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#e879f9" stroke-width="2"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18v3h3l5.7-5.7a4.5 4.5 0 0 0 6-6L14 13l-3-3Z"/></svg>
+          </span>
+          <div><h3>The Engineer</h3><small>Security · Remediation</small></div>
+        </div>
+        <dl>
+          <div><dt>Role</dt><dd>Owns the fix. Has limited windows and must pick the highest-leverage change.</dd></div>
+          <div><dt>Asks</dt><dd><b>"What one fix kills the most paths?"</b></dd></div>
+          <div><dt>Exit action</dt><dd>Ship a change with quantified, simulated impact.</dd></div>
+        </dl>
+      </div>
+      <div class="role">
+        <div class="top">
+          <span class="persona-icon" style="background:rgba(52,211,153,.12); border:1px solid rgba(52,211,153,.4)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+          </span>
+          <div><h3>The CISO</h3><small>Leadership · Posture &amp; Reporting</small></div>
+        </div>
+        <dl>
+          <div><dt>Role</dt><dd>Owns the narrative. Accountable to the board for direction of travel.</dd></div>
+          <div><dt>Asks</dt><dd><b>"Are we getting better?"</b></dd></div>
+          <div><dt>Exit action</dt><dd>A board-ready slide: score, trend, and the plan.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 — Analyst -->
+  <section class="slide">
+    <div class="kicker" style="color:var(--cyan)">Persona 1 · The Analyst</div>
+    <h2>Triage an alert without losing the thread</h2>
+    <div class="grid c2" style="gap:34px; margin-top:24px; align-items:start;">
+      <div>
+        <ul class="steps">
+          <li><span class="n">1</span><span><b>Start from the alert.</b> Search the entity or click the red node — the side panel shows its risk score, open alerts, vulns, and recent activity.</span></li>
+          <li><span class="n">2</span><span><b>Hit "Show blast radius."</b> A flood-fill animates outward hop by hop, revealing everything an attacker could reach from this foothold.</span></li>
+          <li><span class="n">3</span><span><b>Read the summary.</b> "Reaches 14 entities, including 2 critical assets" — with the crown jewels listed and clickable.</span></li>
+          <li><span class="n">4</span><span><b>Check the toxic-combo badges (⚠).</b> They explain, in plain language, why a cluster of minor findings is actually a breach path.</span></li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(251,146,60,.35)">
+        <div class="tag" style="color:var(--orange)">Signature feature</div>
+        <h3 style="margin-top:6px">Blast radius</h3>
+        <p>A breadth-first reachability traversal, animated. It turns the abstract question "is this contained?" into a picture an analyst can act on in seconds.</p>
+        <div style="margin-top:18px; display:flex; gap:22px;">
+          <div><div class="metric" style="color:var(--orange)">14</div><small>entities reachable</small></div>
+          <div><div class="metric" style="color:var(--red)">2</div><small>critical assets</small></div>
+        </div>
+        <p style="margin-top:18px; color:var(--faint)">Exit action → escalate with evidence, or close as contained.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 — Engineer -->
+  <section class="slide">
+    <div class="kicker" style="color:var(--fuchsia)">Persona 2 · The Engineer</div>
+    <h2>Spend your one maintenance window wisely</h2>
+    <div class="grid c2" style="gap:34px; margin-top:24px; align-items:start;">
+      <div>
+        <ul class="steps">
+          <li><span class="n">1</span><span><b>Flip on the Choke-points lens.</b> Every node resizes by how many attack paths run through it — the biggest node is your highest-leverage fix.</span></li>
+          <li><span class="n">2</span><span><b>Open the Remediation queue.</b> Fixes are ranked live: "severs 2 attack paths · org risk −18", recomputed as you go.</span></li>
+          <li><span class="n">3</span><span><b>Press "Simulate fix."</b> The graph severs those edges, the paths disappear, and the org risk score animates down — before you touch production.</span></li>
+          <li><span class="n">4</span><span><b>Compare and commit.</b> Stack simulations to find the smallest set of changes that collapses the most risk, then ship them.</span></li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(232,121,249,.35)">
+        <div class="tag" style="color:var(--fuchsia)">Signature feature</div>
+        <h3 style="margin-top:6px">Simulate-fix &amp; choke points</h3>
+        <p>What-if analysis on the live graph. Because the queue ranks by paths severed, the engineer optimizes for leverage, not ticket count.</p>
+        <div style="margin-top:18px; display:flex; gap:22px; align-items:flex-end;">
+          <div><div class="metric" style="color:var(--red)">73</div><small>org risk before</small></div>
+          <div class="arrow" style="font-size:26px; color:var(--faint); padding-bottom:8px;">→</div>
+          <div><div class="metric" style="color:var(--emerald)">46</div><small>after one fix</small></div>
+        </div>
+        <p style="margin-top:18px; color:var(--faint)">Exit action → a PR / change ticket with quantified impact.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 — CISO -->
+  <section class="slide">
+    <div class="kicker" style="color:var(--emerald)">Persona 3 · The CISO</div>
+    <h2>Three numbers the board will remember</h2>
+    <div class="grid c2" style="gap:34px; margin-top:24px; align-items:start;">
+      <div>
+        <ul class="steps">
+          <li><span class="n">1</span><span><b>Press <kbd style="border:1px solid var(--border); border-radius:5px; padding:1px 6px; background:var(--panel2)">E</kbd> for Exec view.</b> The graph recedes; a board-ready summary takes over.</span></li>
+          <li><span class="n">2</span><span><b>Lead with posture.</b> One org risk score, a 90-day trend line, and the count of live attack paths to critical assets.</span></li>
+          <li><span class="n">3</span><span><b>Show "the plan."</b> The same remediation queue, framed as the next fixes by impact — proof the team is working the right things.</span></li>
+          <li><span class="n">4</span><span><b>Confirm the crown jewels.</b> Every critical asset and its current status, at a glance.</span></li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(52,211,153,.35)">
+        <div class="tag" style="color:var(--emerald)">Signature feature</div>
+        <h3 style="margin-top:6px">Exec view</h3>
+        <p>Effective dashboards produce exactly three outputs: a posture score, a prioritized plan, and a trend that says whether risk is rising or falling.</p>
+        <div style="margin-top:18px; display:flex; gap:26px;">
+          <div><div class="metric" style="color:var(--emerald)">46<small> /100</small></div><small>posture, improving</small></div>
+          <div><div class="metric" style="color:var(--emerald)">▼ 43</div><small>pts / 7 days</small></div>
+        </div>
+        <p style="margin-top:18px; color:var(--faint)">Exit action → a slide that's already board-ready.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Product demo — gallery -->
+  <section class="slide">
+    <div class="kicker">Product demo</div>
+    <h2>See it in action</h2>
+    <p class="sub">Captured live from the prototype at <code>/exposure</code>. The same graph, four lenses — bird's-eye, choke points, the attack surface up close, and the board view.</p>
+    <div class="gallery">
+      <figure>
+        <div class="shot">
+          <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span class="t">ExposureGraph — overview</span></div>
+          <img src="demo/01-overview.png" alt="Bird's-eye cluster view with remediation queue"/>
+        </div>
+        <figcaption><b>Bird's-eye view.</b> Six clusters scored by severity, with the live remediation queue docked at the left.</figcaption>
+      </figure>
+      <figure>
+        <div class="shot">
+          <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span class="t">ExposureGraph — choke points</span></div>
+          <img src="demo/02-chokepoints.png" alt="Choke-points lens active"/>
+        </div>
+        <figcaption><b>Choke-points lens.</b> Nodes resize by how many attack paths run through them — the biggest is the highest-leverage fix.</figcaption>
+      </figure>
+      <figure>
+        <div class="shot">
+          <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span class="t">ExposureGraph — attack paths</span></div>
+          <img src="demo/05-blastradius.png" alt="Zoomed-in entities with live attack edges"/>
+        </div>
+        <figcaption><b>Up close.</b> Zoom in and clusters dissolve into individual assets; red dashed edges trace live attack paths to the crown jewels.</figcaption>
+      </figure>
+      <figure>
+        <div class="shot">
+          <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span class="t">ExposureGraph — exec view</span></div>
+          <img src="demo/03-exec.png" alt="Board-ready executive summary"/>
+        </div>
+        <figcaption><b>Exec view.</b> One keystroke swaps the graph for a board-ready summary: score, trend, plan, crown jewels.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Product demo — exec hero -->
+  <section class="slide">
+    <div class="kicker">Product demo · the payoff</div>
+    <h2>Every lens ends in a decision</h2>
+    <div class="demo-hero">
+      <div class="shot">
+        <div class="bar"><i style="background:#f87171"></i><i style="background:#fbbf24"></i><i style="background:#34d399"></i><span class="t">/exposure — Security posture</span></div>
+        <img src="demo/03-exec.png" alt="Executive security posture board"/>
+      </div>
+      <div>
+        <p class="lead" style="margin-top:0">The board view is the whole story on one screen — and it's computed live from the same graph the analyst and engineer just worked.</p>
+        <div style="margin-top:24px; display:grid; gap:18px;">
+          <div><div class="metric" style="color:var(--orange)">72<small> /100</small></div><small style="color:var(--faint)">org risk score, trending down</small></div>
+          <div><div class="metric" style="color:var(--emerald)">▼ 17<small> pts / 7 days</small></div><small style="color:var(--faint)">posture improving as fixes ship</small></div>
+          <div><div class="metric" style="color:var(--red)">3</div><small style="color:var(--faint)">live attack paths to critical assets</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 — Incident replay (shared) -->
+  <section class="slide">
+    <div class="kicker">Shared capability</div>
+    <h2>Replay the breach, hop by hop</h2>
+    <p class="lead">When the incident is over, <b style="color:var(--ink)">Incident replay</b> reconstructs it on the graph. Drag the scrubber and watch the attacker move from the phished laptop through the choke point to the customer database — one timestamped step at a time.</p>
+    <div class="flow">
+      <div class="node">Phish opened<small>09:12</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Macro executes<small>09:14</small></div>
+      <span class="arrow">→</span>
+      <div class="node">Creds harvested<small>09:51</small></div>
+      <span class="arrow">→</span>
+      <div class="node" style="border-color:rgba(232,121,249,.5)">Lateral move<small>11:22</small></div>
+      <span class="arrow">→</span>
+      <div class="node" style="border-color:rgba(248,113,113,.5)">Customer DB<small>13:05</small></div>
+    </div>
+    <p class="sub" style="margin-top:30px">Analysts use it for the post-mortem; engineers use it to confirm their fix would have broken the chain; the CISO uses it to tell the story.</p>
+  </section>
+
+  <!-- 9 — Feature map -->
+  <section class="slide">
+    <div class="kicker">At a glance</div>
+    <h2>Feature → persona map</h2>
+    <div class="grid c2" style="margin-top:26px; gap:16px;">
+      <div class="feat"><span class="ic" style="background:rgba(251,146,60,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 3"/></svg></span><div><h3>Blast radius</h3><p>Analyst — scope a foothold's reach in seconds.</p></div></div>
+      <div class="feat"><span class="ic" style="background:rgba(232,121,249,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#e879f9" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5"/></svg></span><div><h3>Choke points</h3><p>Engineer — find the highest-leverage node.</p></div></div>
+      <div class="feat"><span class="ic" style="background:rgba(52,211,153,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18v3h3l5.7-5.7a4.5 4.5 0 0 0 6-6L14 13l-3-3Z"/></svg></span><div><h3>Remediation queue + simulate</h3><p>Engineer — rank and what-if fixes live.</p></div></div>
+      <div class="feat"><span class="ic" style="background:rgba(248,113,113,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><path d="M13 2 4 14h6l-1 8 9-12h-6Z"/></svg></span><div><h3>Attack-path playback</h3><p>Analyst — narrate a path hop by hop.</p></div></div>
+      <div class="feat"><span class="ic" style="background:rgba(251,191,36,.12)"><svg viewBox="0 0 24 24" fill="#fbbf24"><path d="M12 2 1 21h22Z"/></svg></span><div><h3>Toxic-combination badges</h3><p>Analyst — see why minor issues chain.</p></div></div>
+      <div class="feat"><span class="ic" style="background:rgba(34,211,238,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></span><div><h3>Posture score + trend · Exec view</h3><p>CISO — report direction, not just status.</p></div></div>
+    </div>
+  </section>
+
+  <!-- 10 — Close -->
+  <section class="slide">
+    <div class="logo">
+      <span class="mark"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5Zm0 4.5a2 2 0 1 1-2 2 2 2 0 0 1 2-2Z"/></svg></span>
+      <b>ExposureGraph<span>Organization Exposure Management</span></b>
+    </div>
+    <h1 style="max-width:20ch">Every view ends in an action.</h1>
+    <p class="lead">The analyst escalates with evidence. The engineer ships the highest-leverage fix. The CISO reports a trend. One graph, three jobs, zero dead ends.</p>
+    <div style="margin-top:34px; display:flex; gap:14px; flex-wrap:wrap;">
+      <span class="pill" style="color:var(--cyan); border-color:rgba(34,211,238,.4)">Run it → <code style="margin-left:6px">/exposure</code></span>
+      <span class="pill">Press <b style="margin:0 5px">E</b> for Exec view</span>
+      <span class="pill">Toggle lenses from the left rail</span>
+    </div>
+  </section>
+
+</div>
+
+<div class="chrome">
+  <div class="hint">← → or Space to navigate · F for fullscreen</div>
+  <div class="nav">
+    <button id="prev">Prev</button>
+    <span class="count"><span id="cur">1</span> / <span id="total">10</span></span>
+    <button id="next">Next</button>
+  </div>
+</div>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  let i = 0;
+  const total = slides.length;
+  document.getElementById('total').textContent = total;
+  function show(n) {
+    i = Math.max(0, Math.min(total - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    document.getElementById('cur').textContent = i + 1;
+    document.getElementById('progress').style.width = ((i + 1) / total * 100) + '%';
+  }
+  document.getElementById('next').onclick = () => show(i + 1);
+  document.getElementById('prev').onclick = () => show(i - 1);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); show(i + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(total - 1);
+    else if (e.key === 'f' || e.key === 'F') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  show(0);
+</script>
+</body>
+</html>
